@@ -8,3 +8,5 @@ isodate
 numpy
 psycopg2-binary
 sqlalchemy
+psycopg[binary]
+psycopg2-binary
