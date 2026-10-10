@@ -18,6 +18,9 @@ def init_db():
                 channel TEXT,
                 feature_text TEXT
             );
+            ALTER TABLE trained_videos ADD COLUMN IF NOT EXISTS title TEXT;
+            ALTER TABLE trained_videos ADD COLUMN IF NOT EXISTS channel TEXT;
+            ALTER TABLE trained_videos ADD COLUMN IF NOT EXISTS feature_text TEXT;
         """))
 
 def log_watched_video(video_id, title, channel, feature_text):
