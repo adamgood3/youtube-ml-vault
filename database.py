@@ -2,10 +2,19 @@ import os
 import streamlit as st
 from sqlalchemy import create_engine, text
 
-# Use Supabase URL from Streamlit Secrets, fallback to local SQLite for offline dev
-DB_URL = st.secrets.get("DATABASE_URL", os.environ.get("DATABASE_URL", "sqlite:///youtube_vault.db"))
+# Safely load DB_URL across Streamlit Cloud, local secrets, env vars, or local SQLite fallback
+DB_URL = None
 
-# Fix postgres prefix for SQLAlchemy if needed
+try:
+    if "DATABASE_URL" in st.secrets:
+        DB_URL = st.secrets["DATABASE_URL"]
+except Exception:
+    pass
+
+if not DB_URL:
+    DB_URL = os.environ.get("DATABASE_URL", "sqlite:///youtube_vault.db")
+
+# SQLAlchemy expects 'postgresql://' instead of 'postgres://'
 if DB_URL.startswith("postgres://"):
     DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
 
