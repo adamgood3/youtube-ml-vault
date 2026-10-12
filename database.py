@@ -2,7 +2,13 @@ import os
 import streamlit as st
 from sqlalchemy import create_engine, text
 
-DB_URL = st.secrets.get("DATABASE_URL") or os.environ.get("DATABASE_URL", "")
+# Safely check environment variables first (for GitHub Actions cron) then Streamlit secrets
+DB_URL = os.environ.get("DATABASE_URL")
+if not DB_URL:
+    try:
+        DB_URL = st.secrets.get("DATABASE_URL", "")
+    except Exception:
+        DB_URL = ""
 
 if DB_URL.startswith("postgres://"):
     DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
