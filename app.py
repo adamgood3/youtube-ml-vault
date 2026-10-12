@@ -62,47 +62,52 @@ with st.sidebar:
                 seeds = ml_engine.fetch_seed_videos_by_ids(extracted_ids)
                 for s in seeds:
                     database.log_watched_video(s["video_id"], s["title"], s["channel"], s["feature_text"])
-                st.success(f"Added {len(seeds)} video(s) to training profile!")
-                st.session_state.pop("ranked_feed", None)  # Refresh feed on new seeds
+                st.success(f"Trained {len(seeds)} video(s) into database!")
 
-    history = database.get_watched_history_features()
-    st.caption(f"📊 Trained profile videos: **{len(history)}**")
+    history_records = database.get_watched_history()
+    st.caption(f"📊 Trained profile videos: **{len(history_records)}**")
     st.divider()
 
-    if st.button("🔄 Refresh Recommendations", use_container_width=True):
-        st.session_state.pop("ranked_feed", None)
-        st.rerun()
+    # Explicit Refresh Button so the feed never changes unexpectedly
+    if st.button("🔄 Generate New 5-Video Feed", use_container_width=True):
+        with st.spinner("Finding long-form recommendations & ranking..."):
+            history_features = database.get_watched_history_features()
+            candidates = ml_engine.fetch_discovery_videos(history_records, max_results=12)
+            ranked = ml_engine.rank_and_diversify_videos(history_features, candidates, max_per_channel=1)
+            database.save_active_recommendations(ranked[:5])
+            st.success("New feed saved to Vault!")
+            st.rerun()
 
-# --- Automatic Feed Generation ---
-history = database.get_watched_history_features()
+# --- Feed Display ---
+history_records = database.get_watched_history()
 
-if not history:
-    st.info("👋 Welcome! Open the sidebar (arrow at top left) on your computer to add your first YouTube video seeds.")
+if not history_records:
+    st.info("👋 Welcome! Open the sidebar on your laptop to paste your first seed videos.")
 else:
-    # Auto-fetch if not already in session state
-    if "ranked_feed" not in st.session_state:
-        with st.spinner("Assembling your personalized feed..."):
-            keywords = ml_engine.extract_interest_keywords(history, top_n=3)
-            st.session_state["extracted_keywords"] = keywords
-            candidates = ml_engine.fetch_discovery_videos(keywords, max_results=6)
-            ranked = ml_engine.rank_and_diversify_videos(history, candidates, max_per_channel=1)
-            st.session_state["ranked_feed"] = ranked
+    active_videos = database.get_active_recommendations()
 
-    # Display Top 5 Videos
-    videos = st.session_state.get("ranked_feed", [])[:5]
+    # Initial auto-generation if the database table is empty
+    if not active_videos:
+        with st.spinner("Generating your initial feed..."):
+            history_features = database.get_watched_history_features()
+            candidates = ml_engine.fetch_discovery_videos(history_records, max_results=12)
+            ranked = ml_engine.rank_and_diversify_videos(history_features, candidates, max_per_channel=1)
+            active_videos = ranked[:5]
+            database.save_active_recommendations(active_videos)
 
-    if not videos:
-        st.warning("No candidate videos matched. Click 'Refresh Recommendations' in the sidebar.")
+    st.subheader("Your 5 Ranked Recommendations")
+    
+    if not active_videos:
+        st.warning("No long-form videos matched your criteria. Click 'Generate New 5-Video Feed' in the sidebar.")
     else:
-        st.subheader("Your 5 Ranked Recommendations")
-        for idx, video in enumerate(videos):
+        for idx, video in enumerate(active_videos):
             with st.container(border=True):
                 col_video, col_info = st.columns([1.2, 1])
                 with col_video:
                     st.video(video["url"])
                 with col_info:
                     score = video.get("similarity_score", 0.0)
-                    source = video.get("source", "Discovery")
+                    source = video.get("source", "Vault Discovery")
                     st.markdown(
                         f"<span class='ml-badge'>🎯 Vector Match: {score * 100:.1f}%</span>"
                         f"<span class='source-tag'>{source}</span>",
@@ -112,6 +117,6 @@ else:
                     st.write(f"**Channel:** {video['channel']}")
                     
                     if st.button("Mark Watched & Reinforce", key=f"feed_btn_{video['video_id']}_{idx}"):
-                        database.log_watched_video(video["video_id"], video["title"], video["channel"], video["feature_text"])
-                        st.success("Reinforced ML profile!")
-                        st.rerun()
+                        feat_text = f"{video['title']} {video['channel']}"
+                        database.log_watched_video(video["video_id"], video["title"], video["channel"], feat_text)
+                        st.success("Trained model with this video!")
