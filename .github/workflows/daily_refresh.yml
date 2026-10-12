@@ -1,0 +1,33 @@
+name: Daily Feed Refresh
+
+on:
+  schedule:
+    # 6:00 AM PDT (Pacific Daylight Time is UTC-7, so 13:00 UTC)
+    # If in Pacific Standard Time (UTC-8), change '0 13' to '0 14'
+    - cron: '0 13 * * *'
+  workflow_dispatch: # Allows you to manually trigger it anytime from GitHub
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Feed Refresh Script
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python refresh_feed.py
