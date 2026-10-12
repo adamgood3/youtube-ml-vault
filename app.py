@@ -2,7 +2,7 @@ import streamlit as st
 import database
 import ml_engine
 
-# Start collapsed so mobile opens directly into video feed
+# Collapsed sidebar by default for seamless mobile consumption
 st.set_page_config(
     page_title="YouTube ML Vault",
     page_icon="📺",
@@ -58,7 +58,7 @@ with st.sidebar:
         if not extracted_ids:
             st.warning("Please paste at least one valid YouTube URL.")
         else:
-            with st.spinner("Embedding and training seeds..."):
+            with st.spinner("Extracting metadata & updating vector space..."):
                 seeds = ml_engine.fetch_seed_videos_by_ids(extracted_ids)
                 for s in seeds:
                     database.log_watched_video(s["video_id"], s["title"], s["channel"], s["feature_text"])
@@ -68,14 +68,26 @@ with st.sidebar:
     st.caption(f"📊 Trained profile videos: **{len(history_records)}**")
     st.divider()
 
-    # Explicit Refresh Button so the feed never changes unexpectedly
-    if st.button("🔄 Generate New 5-Video Feed", use_container_width=True):
-        with st.spinner("Finding long-form recommendations & ranking..."):
-            history_features = database.get_watched_history_features()
-            candidates = ml_engine.fetch_discovery_videos(history_records, max_results=12)
-            ranked = ml_engine.rank_and_diversify_videos(history_features, candidates, max_per_channel=1)
+    if st.button("🔄 Generate Hybrid Feed (Option 1 + 2)", use_container_width=True):
+        with st.spinner("Harvesting creator uploads + related video network..."):
+            watched_ids = {v["video_id"] for v in history_records}
+            history_features = [v["feature_text"] for v in history_records]
+
+            # 1. Option 2: Creator Uploads (RSS)
+            creator_channels = list({v.get("channel_id") for v in history_records if v.get("channel_id")})
+            creator_pool = ml_engine.fetch_creator_uploads(creator_channels, watched_ids, max_per_channel=3)
+
+            # 2. Option 1: Up Next / Related Graph
+            related_pool = ml_engine.fetch_related_videos(history_records, watched_ids, max_per_seed=4)
+
+            # 3. Combine & purge Shorts
+            raw_candidates = creator_pool + related_pool
+            clean_candidates = ml_engine.verify_and_purge_shorts(raw_candidates)
+
+            # 4. Nearest-Neighbor Semantic Ranking
+            ranked = ml_engine.rank_and_diversify_videos(history_features, clean_candidates, max_per_channel=1)
             database.save_active_recommendations(ranked[:5])
-            st.success("New feed saved to Vault!")
+            st.success("Fresh hybrid feed saved!")
             st.rerun()
 
 # --- Feed Display ---
@@ -86,19 +98,26 @@ if not history_records:
 else:
     active_videos = database.get_active_recommendations()
 
-    # Initial auto-generation if the database table is empty
+    # Initial auto-generation if feed is empty
     if not active_videos:
-        with st.spinner("Generating your initial feed..."):
-            history_features = database.get_watched_history_features()
-            candidates = ml_engine.fetch_discovery_videos(history_records, max_results=12)
-            ranked = ml_engine.rank_and_diversify_videos(history_features, candidates, max_per_channel=1)
+        with st.spinner("Bootstrapping initial hybrid recommendations..."):
+            watched_ids = {v["video_id"] for v in history_records}
+            history_features = [v["feature_text"] for v in history_records]
+
+            creator_channels = list({v.get("channel_id") for v in history_records if v.get("channel_id")})
+            creator_pool = ml_engine.fetch_creator_uploads(creator_channels, watched_ids, max_per_channel=3)
+            related_pool = ml_engine.fetch_related_videos(history_records, watched_ids, max_per_seed=4)
+
+            raw_candidates = creator_pool + related_pool
+            clean_candidates = ml_engine.verify_and_purge_shorts(raw_candidates)
+            ranked = ml_engine.rank_and_diversify_videos(history_features, clean_candidates, max_per_channel=1)
             active_videos = ranked[:5]
             database.save_active_recommendations(active_videos)
 
     st.subheader("Your 5 Ranked Recommendations")
     
     if not active_videos:
-        st.warning("No long-form videos matched your criteria. Click 'Generate New 5-Video Feed' in the sidebar.")
+        st.warning("No candidate videos available. Click 'Generate Hybrid Feed' in the sidebar.")
     else:
         for idx, video in enumerate(active_videos):
             with st.container(border=True):
@@ -107,7 +126,7 @@ else:
                     st.video(video["url"])
                 with col_info:
                     score = video.get("similarity_score", 0.0)
-                    source = video.get("source", "Vault Discovery")
+                    source = video.get("source", "Hybrid Network")
                     st.markdown(
                         f"<span class='ml-badge'>🎯 Vector Match: {score * 100:.1f}%</span>"
                         f"<span class='source-tag'>{source}</span>",
