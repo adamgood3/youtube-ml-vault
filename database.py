@@ -2,13 +2,19 @@ import os
 import streamlit as st
 from sqlalchemy import create_engine, text
 
-# Safely check environment variables first (for GitHub Actions cron) then Streamlit secrets
-DB_URL = os.environ.get("DATABASE_URL")
-if not DB_URL:
+# Safely extract and clean database connection string
+raw_url = os.environ.get("DATABASE_URL")
+if not raw_url:
     try:
-        DB_URL = st.secrets.get("DATABASE_URL", "")
+        raw_url = st.secrets.get("DATABASE_URL", "")
     except Exception:
-        DB_URL = ""
+        raw_url = ""
+
+# Strip surrounding double or single quotes and whitespace
+DB_URL = (raw_url or "").strip().strip('"').strip("'")
+
+if not DB_URL:
+    raise ValueError("[ERROR] DATABASE_URL is not set or is empty! Verify your GitHub Secret or Streamlit Secrets.")
 
 if DB_URL.startswith("postgres://"):
     DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
